@@ -1,0 +1,5 @@
+{
+  "name": "OMNI-CORE AI Trader",
+  "description": "An advanced AI-powered trading signal generator that leverages a multi-step analysis process with Gemini to provide high-accuracy trading signals. The application features user authentication, persists user settings, and logs trading history for a personalized experience.",
+  "requestFramePermissions": []
+}
