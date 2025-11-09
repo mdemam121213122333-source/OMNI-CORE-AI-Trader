@@ -8,49 +8,78 @@ interface SignalCardProps {
     lastTenResults: string[];
     isCooldown: boolean;
     isLoading: boolean;
-    cooldownTimeFormatted: string;
+    cooldownTime: number;
 }
 
-const DetailRow: React.FC<{ label: string, children: React.ReactNode }> = ({ label, children }) => (
-    <>
-        <span className="text-gray-400 font-medium">{label}:</span>
-        <div className="font-semibold text-white break-words">{children}</div>
-    </>
+const DetailRow: React.FC<{ label: string, value: string | React.ReactNode, className?: string }> = ({ label, value, className = '' }) => (
+    <div className={`border-b border-white/10 py-3 ${className}`}>
+        <span className="text-sm text-gray-400 font-medium">{label}</span>
+        <div className="text-base font-semibold text-white break-words">{value}</div>
+    </div>
 );
 
-const SignalCard: React.FC<SignalCardProps> = ({ signalData, lastTenResults, isCooldown, isLoading, cooldownTimeFormatted }) => {
-    const isActive = !!signalData || isLoading || isCooldown;
-
-    const getReasonText = () => {
-        if (signalData) return signalData.reason;
-        if (isLoading) return `OMNI-CORE FUSION Initiating. Synchronizing all ${TOTAL_AI_MODELS} API Keys...`;
-        if (isCooldown) return `OMNI-CORE FIELD STABILIZATION: Preparing for next Signal: ${cooldownTimeFormatted}`;
-        return `OMNI-CORE System Ready. All ${TOTAL_AI_MODELS} Models Online.`;
+const RiskIndicator: React.FC<{ riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' }> = ({ riskLevel }) => {
+    const riskConfig = {
+        LOW: { text: 'LOW RISK', color: 'text-green-400', icon: '🛡️' },
+        MEDIUM: { text: 'MEDIUM RISK', color: 'text-yellow-400', icon: '⚠️' },
+        HIGH: { text: 'HIGH RISK', color: 'text-red-400', icon: '🔥' },
     };
-    
-    const reasonClass = isLoading ? 'text-[#00bcd4]' : isCooldown ? 'text-[#ff4d4d]' : 'text-white';
 
-    const cardClass = `bg-[#1a2c4e]/70 rounded-xl p-5 relative shadow-xl border border-white/10 transition-all duration-500 ${isActive ? 'block' : 'hidden'} overflow-hidden`;
-    const borderClass = signalData?.direction === 'CALL' ? 'before:bg-[#00e676]' : signalData?.direction === 'PUT' ? 'before:bg-[#ff3d00]' : 'before:bg-[#ff5733]';
-    const fullCardClass = `${cardClass} ${borderClass} before:content-[''] before:absolute before:top-0 before:left-0 before:w-1.5 before:h-full before:rounded-l-xl`;
+    const config = riskConfig[riskLevel];
 
     return (
-        <div className={fullCardClass}>
-            <div className="text-center mb-4 text-sm font-bold text-gray-200">
-                OMNI-CORE AI TRADER - v1.0.5.20 (81+ API FUSION)
+        <div className={`flex items-center gap-1.5 text-xs font-bold ${config.color}`}>
+            <span>{config.icon}</span>
+            <span>{config.text}</span>
+        </div>
+    );
+};
+
+
+const SignalCard: React.FC<SignalCardProps> = ({ signalData, lastTenResults, isCooldown, isLoading, cooldownTime }) => {
+    const formatTime = (time: number) => `${String(Math.floor(time / 60)).padStart(2, '0')}:${String(time % 60).padStart(2, '0')}`;
+
+    const renderSignalStatus = () => {
+        if (signalData) {
+            const isCall = signalData.direction === 'CALL';
+            const signalClass = isCall ? 'text-[#00e676] bg-[#00e676]/10 border-[#00e676]' : 'text-[#ff3d00] bg-[#ff3d00]/10 border-[#ff3d00]';
+            const shadowClass = isCall ? 'shadow-[0_0_20px_theme(colors.green.500)]' : 'shadow-[0_0_20px_theme(colors.red.600)]';
+            return (
+                <div className={`text-4xl font-black tracking-widest p-4 rounded-lg text-center border-2 ${signalClass} ${shadowClass} animate-pulse`}>
+                    {signalData.direction}
+                </div>
+            );
+        }
+        if (isLoading) return <div className="text-center text-xl text-[#00bcd4] font-semibold animate-pulse">ANALYZING MARKET DATA...</div>;
+        if (isCooldown) return (
+            <div className="text-center text-yellow-400 animate-pulse">
+                <div className="text-xl font-bold">COOLDOWN ACTIVE</div>
+                <div className="text-4xl font-mono mt-1">{formatTime(cooldownTime)}</div>
             </div>
-            <div className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-3 text-sm">
-                <DetailRow label="Broker">{signalData?.broker || '...'}</DetailRow>
-                <DetailRow label="Market">{signalData?.asset || '...'}</DetailRow>
-                <DetailRow label="Duration">{signalData?.duration || '...'}</DetailRow>
-                <DetailRow label="Entry Time">{signalData?.time || '00:00 (UTC+6)'}</DetailRow>
-                <DetailRow label="Next Trade">
-                    {signalData?.direction === 'CALL' && <span className="inline-block px-3 py-1 text-sm font-bold text-black bg-[#00e676] rounded-full shadow-[0_0_15px_#00e676]">OMNI-CORE: CALL</span>}
-                    {signalData?.direction === 'PUT' && <span className="inline-block px-3 py-1 text-sm font-bold text-white bg-[#ff3d00] rounded-full shadow-[0_0_15px_#ff3d00]">OMNI-CORE: PUT</span>}
-                </DetailRow>
-                <DetailRow label="Accuracy">{signalData?.accuracy || '100.0% ...'}</DetailRow>
-                <DetailRow label="Reason"><span className={reasonClass}>{getReasonText()}</span></DetailRow>
+        );
+        return <div className="text-center text-gray-400 font-semibold">AWAITING SIGNAL</div>;
+    };
+
+    return (
+        <div className="bg-[#1a2c4e]/60 rounded-xl p-5 relative shadow-xl border border-white/10 transition-all duration-500 overflow-hidden min-h-[250px] flex flex-col justify-between">
+            <div>
+                <div className="grid grid-cols-2 gap-x-4">
+                    <DetailRow label="Broker" value={signalData?.broker || '...'} />
+                    <DetailRow label="Market" value={signalData?.asset || '...'} />
+                    <DetailRow label="Duration" value={signalData?.duration || '...'} />
+                    <DetailRow label="Entry Time" value={signalData?.time || '...'} />
+                </div>
+                <div className="mt-4">
+                    <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm text-gray-400 font-medium">Signal</span>
+                        {signalData && <RiskIndicator riskLevel={signalData.riskLevel} />}
+                    </div>
+                    <div className="text-base font-semibold text-white break-words">
+                        {renderSignalStatus()}
+                    </div>
+                </div>
             </div>
+
             <div className="mt-5 p-3 rounded-lg text-center bg-black/30 border border-white/20">
                 <span className="block text-gray-400 font-medium text-xs mb-2">Previous Signal Status (Last 10):</span>
                 <div className="flex flex-wrap justify-center gap-1.5">

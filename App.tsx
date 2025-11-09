@@ -46,7 +46,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#103058] to-[#061021] text-white flex flex-col justify-center items-center p-4">
+    <div className="min-h-screen bg-[#091a31] text-white antialiased">
       {user ? <TraderDashboard user={user} auth={auth} db={db} /> : <Login auth={auth} />}
     </div>
   );

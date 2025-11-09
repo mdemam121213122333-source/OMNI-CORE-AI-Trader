@@ -1,42 +1,103 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Auth, User, signOut } from 'firebase/auth';
 import { Firestore } from 'firebase/firestore';
 import { brokers, marketAssets, brokerDurationsMap, defaultDurations, brokerMarketMap, TOTAL_AI_MODELS } from '../constants';
 import { generateAiSignal, logTrade, loadUserSettings, saveUserSettings } from '../services/apiService';
 import { SignalData, UserSettings, AiConsensusResponse } from '../types';
 import SignalCard from './SignalCard';
+import TradeHistory from './TradeHistory';
 
-interface TraderDashboardProps {
-  user: User;
-  auth: Auth;
-  db: Firestore;
-}
+// --- Sub-components for TraderDashboard ---
 
 const CustomSelect: React.FC<{ label: string; value: string; onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void; options: React.ReactNode; disabled: boolean; }> = ({ label, value, onChange, options, disabled }) => (
-    <div className="relative bg-gray-800/40 rounded-lg border border-white/20">
-        <select aria-label={label} value={value} onChange={onChange} disabled={disabled} className="w-full appearance-none bg-transparent text-white px-4 py-4 text-center font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5733] rounded-lg disabled:cursor-not-allowed disabled:opacity-60">
+    <div className="relative bg-black/20 rounded-lg border border-white/10 shadow-inner">
+        <select aria-label={label} value={value} onChange={onChange} disabled={disabled} className="w-full appearance-none bg-transparent text-white px-4 py-3 text-base text-center font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#ff5733] rounded-lg disabled:cursor-not-allowed disabled:opacity-50">
             {options}
         </select>
-        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-300">
+        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-400">
             <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
         </div>
     </div>
 );
 
+const AnalysisProgress: React.FC<{ step: number, steps: string[] }> = ({ step, steps }) => {
+    return (
+        <div className="flex justify-between items-center gap-2 sm:gap-4 my-4 px-1">
+            {steps.map((name, index) => {
+                const isActive = step > index + 1;
+                const isCurrent = step === index + 1;
+                return (
+                    <React.Fragment key={name}>
+                        <div className="flex flex-col items-center text-center">
+                            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isActive ? 'bg-[#00e676]/80 border-[#00e676]' : isCurrent ? 'bg-[#ff5733]/80 border-[#ff5733] animate-pulse' : 'bg-black/20 border-white/20'}`}>
+                                {isActive ? '✓' : index + 1}
+                            </div>
+                            <span className={`text-xs sm:text-sm mt-2 transition-colors ${isActive || isCurrent ? 'text-white' : 'text-gray-500'}`}>{name}</span>
+                        </div>
+                        {index < steps.length - 1 && <div className={`flex-1 h-1 rounded-full transition-colors duration-500 ${step > index + 1 ? 'bg-[#00e676]' : 'bg-black/30'}`}></div>}
+                    </React.Fragment>
+                )
+            })}
+        </div>
+    );
+};
+
+const SystemLog: React.FC<{ messages: string[] }> = ({ messages }) => {
+    const logEndRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    return (
+        <div className="h-48 bg-black/30 rounded-lg p-4 border border-white/10 font-mono text-sm text-gray-300 overflow-y-auto shadow-inner">
+            {messages.map((msg, i) => (
+                <div key={i} className="whitespace-pre-wrap">
+                    <span className="text-[#00e676] mr-2">&gt;</span>{msg}
+                </div>
+            ))}
+            <div ref={logEndRef} />
+        </div>
+    );
+};
+
+// FIX: Added interface for TraderDashboard props to resolve type error.
+interface TraderDashboardProps {
+    user: User;
+    auth: Auth;
+    db: Firestore;
+}
+
+const availableTechniques = ['Fundamental', 'Technical', 'Sentiment'];
+
+// --- Main Dashboard Component ---
+
 const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, auth, db }) => {
+    // Page state
+    const [activeTab, setActiveTab] = useState<'signal' | 'history'>('signal');
+
+    // Trade Parameters
     const [selections, setSelections] = useState({
         broker: brokers[0],
         asset: marketAssets['### FOREX (LIVE FEED) ###'][0],
         duration: defaultDurations[1],
     });
+    // Advanced AI Settings
+    const [aiModelCount, setAiModelCount] = useState(TOTAL_AI_MODELS);
+    const [confidenceThreshold, setConfidenceThreshold] = useState<'LOW' | 'MEDIUM' | 'HIGH'>('MEDIUM');
+    const [analysisTechniques, setAnalysisTechniques] = useState<string[]>(availableTechniques);
+    const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false);
+
+    // System State
     const [signalData, setSignalData] = useState<SignalData | null>(null);
     const [lastTenResults, setLastTenResults] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [isCooldown, setIsCooldown] = useState(false);
     const [cooldownTime, setCooldownTime] = useState(60);
+    const [isMarketSyncing, setIsMarketSyncing] = useState(true); // New state for pre-analysis sync
+    const [marketSyncTime, setMarketSyncTime] = useState(180); // New state for sync time (e.g., 3 minutes)
     const [globalError, setGlobalError] = useState('');
-    const [statusMessage, setStatusMessage] = useState('');
+    const [analysisStep, setAnalysisStep] = useState(0);
+    const [logMessages, setLogMessages] = useState<string[]>([`OMNI-CORE v1.2.0 Initialized. All ${TOTAL_AI_MODELS} models online. Syncing with market data...`]);
 
     const durationOptions = useMemo(() => {
         return brokerDurationsMap[selections.broker] || defaultDurations;
@@ -54,9 +115,15 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, auth, db }) => 
     };
     
     const persistSettings = useCallback(() => {
-        const settings: UserSettings = { ...selections, lastTen: lastTenResults };
+        const settings: UserSettings = { 
+            ...selections, 
+            lastTen: lastTenResults,
+            aiModelCount,
+            confidenceThreshold,
+            analysisTechniques
+        };
         saveUserSettings(db, user.uid, settings);
-    }, [db, user.uid, selections, lastTenResults]);
+    }, [db, user.uid, selections, lastTenResults, aiModelCount, confidenceThreshold, analysisTechniques]);
 
     useEffect(() => {
         loadUserSettings(db, user.uid).then(settings => {
@@ -67,6 +134,9 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, auth, db }) => 
                     duration: settings.duration || defaultDurations[1],
                 });
                 setLastTenResults(settings.lastTen || []);
+                setAiModelCount(settings.aiModelCount || TOTAL_AI_MODELS);
+                setConfidenceThreshold(settings.confidenceThreshold || 'MEDIUM');
+                setAnalysisTechniques(settings.analysisTechniques || availableTechniques);
             }
         }).catch(err => setGlobalError(err.message));
     }, [db, user.uid]);
@@ -74,55 +144,86 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, auth, db }) => 
     useEffect(() => {
         persistSettings();
     }, [persistSettings]);
-
+    
+    // Effect for market sync timer
     useEffect(() => {
-        let timer: NodeJS.Timeout;
-        if (isCooldown && cooldownTime > 0) {
-            timer = setInterval(() => {
-                setCooldownTime(prev => prev - 1);
-            }, 1000);
-        } else if (isCooldown && cooldownTime <= 0) {
-            setIsCooldown(false);
-            setCooldownTime(60);
+        if (!isMarketSyncing || marketSyncTime <= 0) {
+            if (isMarketSyncing && marketSyncTime <= 0) {
+                setIsMarketSyncing(false);
+                setLogMessages(prev => [...prev, 'Market sync complete. System ready for analysis.']);
+            }
+            return;
         }
-        return () => clearInterval(timer);
+
+        const timerId = setTimeout(() => {
+            setMarketSyncTime(prev => prev - 1);
+        }, 1000);
+
+        return () => clearTimeout(timerId);
+    }, [isMarketSyncing, marketSyncTime]);
+    
+    // Effect for cooldown timer
+    useEffect(() => {
+        if (!isCooldown || cooldownTime <= 0) {
+            if (isCooldown && cooldownTime <= 0) {
+                setIsCooldown(false);
+                setCooldownTime(60); // Reset for next time
+                setIsMarketSyncing(true); // Start market sync after cooldown
+                setMarketSyncTime(180); // Reset sync time
+                setLogMessages(prevLogs => [...prevLogs, 'System cooldown complete. Initiating new market sync cycle.']);
+            }
+            return;
+        };
+
+        const timeoutId = setTimeout(() => {
+            setCooldownTime(cooldownTime - 1);
+        }, 1000);
+
+        return () => clearTimeout(timeoutId);
     }, [isCooldown, cooldownTime]);
+
     
     const handleGenerate = async () => {
         setIsLoading(true);
         setGlobalError('');
         setSignalData(null);
+        setAnalysisStep(1);
+        setLogMessages(['Initiating OMNI-CORE analysis matrix...']);
+
+        const updateProgress = (step: number, message: string) => {
+            setAnalysisStep(step);
+            setLogMessages(prev => [...prev, `[STEP ${step}] ${message}`]);
+        };
 
         try {
-            const aiResponse: AiConsensusResponse = await generateAiSignal(db, user, selections.asset, setStatusMessage);
-
+            const settings = { aiModelCount, confidenceThreshold, analysisTechniques };
+            const aiResponse: AiConsensusResponse = await generateAiSignal(db, user, selections.asset, settings, updateProgress);
             const entryTime = new Date(new Date().getTime() + 2 * 60000 + 6 * 3600 * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-
             const newSignal: SignalData = {
                 broker: brokerMarketMap[selections.broker] || selections.broker,
                 asset: selections.asset,
                 duration: selections.duration,
                 direction: aiResponse.signal,
                 time: `${entryTime} (UTC+6)`,
-                accuracy: `100.0% (OMNI-CORE CONSENSUS)`,
-                reason: `**OMNI-CORE AI (${aiResponse.signal}):** ${aiResponse.reason}`,
+                riskLevel: aiResponse.riskLevel,
+                reason: aiResponse.reason,
             };
             
             setSignalData(newSignal);
+            setLogMessages(prev => [...prev, `SIGNAL LOCKED: ${aiResponse.signal}. REASON: ${aiResponse.reason}`]);
             
             await logTrade(db, user, newSignal);
 
-            setLastTenResults(prev => {
-                const updated = ['S', ...prev];
-                return updated.slice(0, 10);
-            });
-
+            setLastTenResults(prev => ['S', ...prev].slice(0, 10));
+            setCooldownTime(60);
             setIsCooldown(true);
         } catch (error) {
-            setGlobalError((error as Error).message);
+            const errorMessage = (error as Error).message
+            setGlobalError(errorMessage);
+            setLogMessages(prev => [...prev, `ERROR: Analysis failed. ${errorMessage}`]);
         } finally {
             setIsLoading(false);
-            setStatusMessage('');
+            setAnalysisStep(0);
         }
     };
     
@@ -131,6 +232,10 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, auth, db }) => 
         setGlobalError('');
         setIsCooldown(false);
         setCooldownTime(60);
+        setIsMarketSyncing(false); // Also clear market sync
+        setMarketSyncTime(180);
+        setAnalysisStep(0);
+        setLogMessages([`System manually reset by user. Ready for new analysis.`]);
     };
 
     const handleLogout = async () => {
@@ -141,63 +246,154 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, auth, db }) => 
         }
     };
 
+    const handleTechniqueChange = (technique: string) => {
+        setAnalysisTechniques(prev => 
+            prev.includes(technique) 
+                ? prev.filter(t => t !== technique) 
+                : [...prev, technique]
+        );
+    };
+
+    const analysisSteps = [
+        ...(analysisTechniques.includes('Fundamental') ? ['Fundamentals'] : []),
+        ...(analysisTechniques.includes('Technical') ? ['Technicals'] : []),
+        ...(analysisTechniques.includes('Sentiment') ? ['Sentiment'] : []),
+        'User History',
+        'AI Consensus'
+    ];
+
+    const allDisabled = isLoading || isCooldown || isMarketSyncing;
+
     const formatTime = (time: number) => `${String(Math.floor(time / 60)).padStart(2, '0')}:${String(time % 60).padStart(2, '0')}`;
-    const allDisabled = isLoading || isCooldown;
 
     return (
-        <>
-            <div className="absolute top-2 right-2 bg-black/30 p-2 px-4 rounded-full text-xs border border-[#ff5733] flex items-center">
-                <span>{user.email}</span>
-                <button onClick={handleLogout} className="ml-3 bg-[#ff3d00] text-white rounded-full px-3 py-1 text-xs font-bold hover:bg-red-700 transition-colors">Logout</button>
+        <div className="p-4 sm:p-6 lg:p-8">
+            <header className="flex justify-between items-center mb-6">
+                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-wider">OMNI-CORE <span className="text-[#ff5733]">AI TRADER</span></h1>
+                <div className="flex items-center gap-2 text-xs sm:text-sm bg-black/30 p-2 rounded-full border border-white/10">
+                    <span>{user.email}</span>
+                    <button onClick={handleLogout} className="bg-[#ff3d00] text-white rounded-full px-3 py-1 font-bold hover:bg-red-700 transition-colors">Logout</button>
+                </div>
+            </header>
+
+            {/* Tab Navigation */}
+            <div className="flex border-b border-white/10 mb-6">
+                <button
+                    onClick={() => setActiveTab('signal')}
+                    className={`px-4 py-3 text-sm font-bold transition-colors focus:outline-none ${activeTab === 'signal' ? 'text-[#ff5733] border-b-2 border-[#ff5733]' : 'text-gray-400 hover:text-white'}`}
+                >
+                    Live Signal Analysis
+                </button>
+                <button
+                    onClick={() => setActiveTab('history')}
+                    className={`px-4 py-3 text-sm font-bold transition-colors focus:outline-none ${activeTab === 'history' ? 'text-[#ff5733] border-b-2 border-[#ff5733]' : 'text-gray-400 hover:text-white'}`}
+                >
+                    Trade History
+                </button>
             </div>
-            
-            <div className="w-full max-w-md bg-white/5 p-6 rounded-2xl shadow-2xl backdrop-blur-lg border border-white/10 space-y-4">
-                {globalError && (
-                    <div className="bg-[#ff0000] text-white p-4 rounded-lg text-center font-bold text-sm">
-                        {globalError}
+
+            {activeTab === 'signal' && (
+                <main className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    {/* Left Panel: Controls */}
+                    <div className="lg:col-span-2 space-y-4 bg-white/5 p-5 rounded-xl shadow-2xl backdrop-blur-lg border border-white/10">
+                        <h2 className="text-lg font-semibold border-b border-white/10 pb-2 mb-4">Trade Parameters</h2>
+                        <CustomSelect label="Broker" value={selections.broker} onChange={handleSelectionChange('broker')} disabled={allDisabled} options={
+                            brokers.map(b => <option key={b} value={b}>{b}</option>)
+                        } />
+                        <CustomSelect label="Asset" value={selections.asset} onChange={handleSelectionChange('asset')} disabled={allDisabled} options={
+                            Object.entries(marketAssets).map(([group, assets]) => (
+                                <optgroup key={group} label={group.replace(/#/g, '')}>
+                                    {assets.map(a => <option key={a} value={a}>{a}</option>)}
+                                </optgroup>
+                            ))
+                        } />
+                        <CustomSelect label="Duration" value={selections.duration} onChange={handleSelectionChange('duration')} disabled={allDisabled} options={
+                            durationOptions.map(d => <option key={d} value={d}>{d}</option>)
+                        } />
+
+                        {/* Advanced AI Settings */}
+                        <div className="bg-black/20 rounded-lg border border-white/10 p-4 transition-all duration-300">
+                            <button onClick={() => setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen)} disabled={allDisabled} className="w-full text-left font-semibold flex justify-between items-center cursor-pointer disabled:cursor-not-allowed">
+                                <span>Advanced AI Settings</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform duration-300 ${isAdvancedSettingsOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                            </button>
+                            {isAdvancedSettingsOpen && (
+                                <div className="mt-4 pt-4 border-t border-white/10 space-y-5">
+                                    <div>
+                                        <label htmlFor="ai-models" className="block text-sm font-medium text-gray-300 mb-2">AI Models Consulted: <span className="font-bold text-white">{aiModelCount}</span></label>
+                                        <input id="ai-models" type="range" min="1" max={TOTAL_AI_MODELS} value={aiModelCount} onChange={(e) => setAiModelCount(Number(e.target.value))} disabled={allDisabled} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-[#ff5733]" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Confidence Threshold</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {(['LOW', 'MEDIUM', 'HIGH'] as const).map(level => (
+                                                <button key={level} onClick={() => setConfidenceThreshold(level)} disabled={allDisabled} className={`px-2 py-2 text-sm font-bold rounded-md transition-all border-2 ${confidenceThreshold === level ? 'bg-[#ff5733] text-white border-[#ff5733]' : 'bg-black/20 border-transparent hover:border-white/50'}`}>
+                                                    {level}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Analysis Techniques</label>
+                                        <div className="space-y-2">
+                                            {availableTechniques.map(tech => (
+                                                <label key={tech} className="flex items-center gap-3 cursor-pointer">
+                                                    <input type="checkbox" checked={analysisTechniques.includes(tech)} onChange={() => handleTechniqueChange(tech)} disabled={allDisabled} className="h-5 w-5 rounded bg-black/30 border-white/30 text-[#ff5733] focus:ring-[#ff5733] cursor-pointer" />
+                                                    <span className="text-white font-medium">{tech}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="pt-2 flex gap-3">
+                            <button onClick={handleGenerate} disabled={allDisabled} className="w-full py-3.5 px-2.5 border-none rounded-lg text-base font-bold cursor-pointer transition-all duration-300 shadow-lg bg-[#ff5733] text-white disabled:bg-gray-600/80 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-orange-600">
+                                {isLoading 
+                                    ? 'ANALYZING...' 
+                                    : isCooldown 
+                                    ? `SYSTEM COOLDOWN (${formatTime(cooldownTime)})` 
+                                    : isMarketSyncing
+                                    ? `MARKET SYNC (${formatTime(marketSyncTime)})`
+                                    : '✨ GENERATE SIGNAL'
+                                }
+                            </button>
+                            <button onClick={handleClear} disabled={isLoading} className="w-full py-3.5 px-2.5 border-none rounded-lg text-base font-bold cursor-pointer transition-all duration-300 shadow-lg bg-gray-500 text-white disabled:bg-gray-400/50 disabled:cursor-not-allowed hover:bg-gray-600">
+                                CLEAR
+                            </button>
+                        </div>
                     </div>
-                )}
 
-                <div className="space-y-4">
-                    <CustomSelect label="Broker" value={selections.broker} onChange={handleSelectionChange('broker')} disabled={allDisabled} options={
-                        brokers.map(b => <option key={b} value={b}>{b}</option>)
-                    } />
-                    <CustomSelect label="Asset" value={selections.asset} onChange={handleSelectionChange('asset')} disabled={allDisabled} options={
-                        Object.entries(marketAssets).map(([group, assets]) => (
-                            <optgroup key={group} label={group.replace(/#/g, '')}>
-                                {assets.map(a => <option key={a} value={a}>{a}</option>)}
-                            </optgroup>
-                        ))
-                    } />
-                    <CustomSelect label="Duration" value={selections.duration} onChange={handleSelectionChange('duration')} disabled={allDisabled} options={
-                        durationOptions.map(d => <option key={d} value={d}>{d}</option>)
-                    } />
-                </div>
+                    {/* Right Panel: Analysis & Signal */}
+                    <div className="lg:col-span-3 space-y-4 bg-white/5 p-5 rounded-xl shadow-2xl backdrop-blur-lg border-white/10">
+                        {globalError && (
+                            <div className="bg-red-500/80 text-white p-3 rounded-lg text-center font-bold text-sm border border-red-400">
+                                SYSTEM ERROR: {globalError}
+                            </div>
+                        )}
+                        <h2 className="text-lg font-semibold border-b border-white/10 pb-2">AI Analysis Matrix</h2>
+                        <AnalysisProgress step={analysisStep} steps={analysisSteps} />
+                        <SignalCard 
+                            signalData={signalData}
+                            lastTenResults={lastTenResults}
+                            isCooldown={isCooldown}
+                            isLoading={isLoading}
+                            cooldownTime={cooldownTime}
+                        />
+                        <h2 className="text-lg font-semibold border-b border-white/10 pb-2 pt-2">System Log</h2>
+                        <SystemLog messages={logMessages} />
+                    </div>
+                </main>
+            )}
 
-                <div className="flex justify-between gap-3 text-center font-bold">
-                    {isLoading && <div className="flex-1 p-2.5 rounded-lg text-sm bg-[#00bcd4]/10 text-[#00bcd4] border border-[#00bcd4] transition-all duration-300">{statusMessage || 'Initializing...'}</div>}
-                    {isCooldown && <div className="flex-1 p-2.5 rounded-lg text-sm bg-[#ff4d4d]/10 text-[#ff4d4d] border border-[#ff4d4d] transition-all duration-300">Cooldown: {formatTime(cooldownTime)}</div>}
-                </div>
+            {activeTab === 'history' && (
+                <main>
+                    <TradeHistory db={db} user={user} />
+                </main>
+            )}
 
-                <div className="flex gap-3">
-                    <button onClick={handleGenerate} disabled={allDisabled} className="flex-1 py-3.5 px-2.5 border-none rounded-lg text-base font-bold cursor-pointer transition-all duration-300 shadow-lg bg-[#ff5733] text-white disabled:bg-gray-600/80 disabled:opacity-60 disabled:cursor-not-allowed hover:bg-orange-600">
-                        {isLoading ? 'Generating...' : '✨ Generate AI Signal'}
-                    </button>
-                    <button onClick={handleClear} disabled={isLoading} className="flex-1 py-3.5 px-2.5 border-none rounded-lg text-base font-bold cursor-pointer transition-all duration-300 shadow-lg bg-white text-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-gray-200">
-                        Clear Signal
-                    </button>
-                </div>
-
-                <SignalCard 
-                    signalData={signalData}
-                    lastTenResults={lastTenResults}
-                    isCooldown={isCooldown}
-                    isLoading={isLoading}
-                    cooldownTimeFormatted={formatTime(cooldownTime)}
-                />
-
-            </div>
-        </>
+        </div>
     );
 };
 

@@ -1,9 +1,9 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { Firestore, doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { Firestore, doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, Timestamp, QueryConstraint } from 'firebase/firestore';
 import { User } from 'firebase/auth';
 import { CORE_TRADING_KNOWLEDGE_BASE, googleScriptURL } from '../constants';
-import { UserSettings, AiConsensusResponse } from '../types';
+import { UserSettings, AiConsensusResponse, TradeLog } from '../types';
 
 // Initialize the Gemini AI Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -14,7 +14,6 @@ async function getFundamentalAnalysis(asset: string): Promise<string> {
   const systemPrompt = `You are a financial news researcher. Use Google Search to find the top 3-5 most critical, recent (last 1-3 hours) *fundamental* news headlines and market sentiment reports for ${asset}. Return *only* a simple, bulleted list of these raw findings. Do not analyze or give a signal. Do not add any greeting or conclusion.`;
   
   try {
-    // FIX: 'systemInstruction' must be inside the 'config' object.
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Get recent fundamental news for ${asset}.`,
@@ -34,7 +33,6 @@ async function getTechnicalAnalysis(asset: string): Promise<string> {
     const systemPrompt = `You are a technical analyst. Use Google Search to find the most recent (last 1 hour) *technical* indicators for ${asset} (e.g., RSI, MACD, Bollinger Bands, Support/Resistance levels). Return *only* a simple, bulleted list of these raw technical findings. Do not analyze or give a signal. Do not add any greeting or conclusion.`;
 
     try {
-        // FIX: 'systemInstruction' must be inside the 'config' object.
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: `Get recent technical indicators for ${asset}.`,
@@ -50,20 +48,60 @@ async function getTechnicalAnalysis(asset: string): Promise<string> {
     }
 }
 
-async function getFinalConsensus(asset: string, fundamentalData: string, technicalData: string, tradeHistory: string): Promise<AiConsensusResponse> {
-    const systemPrompt = `You are OMNI-CORE AI, the Chief Quantitative Analyst. Your single most important goal is 100% ACCURACY. You MUST find a winning trade. You have FOUR sources of information:
-    1. **CORE TRADING KNOWLEDGE (My Main Server Data - MUST BE FOLLOWED):**\n${CORE_TRADING_KNOWLEDGE_BASE}
-    2. **Fundamental Report (Real-time News):**\n${fundamentalData}
-    3. **Technical Report (Real-time Indicators):**\n${technicalData}
-    4. **User's Past 10 Trades (Self-Learning Data):**\n${tradeHistory}
-    Your job is to synthesize *all four* sources to make the final, high-conviction, 100% accurate signal (CALL or PUT). If the reports conflict with the Core Knowledge, the Core Knowledge ALWAYS wins. Analyze the user's past trades for any patterns (e.g., "User often wins on EUR/USD CALLS") and factor this into your consensus. Provide a detailed, expert-level reason for your final 100% accurate decision, citing the key data points from all reports that led to your consensus. You MUST respond with ONLY a valid JSON object string. Do not include "json" or markdown backticks. Example: {"signal": "CALL", "reason": "Consensus is CALL because: Core Rule 2 (Price at Support) is met. Fundamental (Positive CPI) aligns. Technical (RSI Oversold) aligns. User history also shows 3 recent wins on CALLs for this asset."}`;
+async function getSentimentAnalysis(asset: string): Promise<string> {
+    const systemPrompt = `You are a sentiment analyst. Use Google Search to find the overall market sentiment for ${asset} from social media (like X/Twitter), forums (like Reddit), and financial news commentary within the last 1-3 hours. Summarize the sentiment as Positive, Negative, or Neutral, and provide 2-3 key bullet points explaining why. Return *only* this simple, bulleted list. Do not analyze or give a signal.`;
 
     try {
-        // FIX: 'systemInstruction' must be inside a 'config' object.
-        // Also adding responseMimeType to ensure JSON output.
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: `Asset: ${asset}\nProvide the final 100% accuracy signal and reason based on all four data sources.`,
+            contents: `Get recent market sentiment for ${asset}.`,
+            config: {
+                systemInstruction: systemPrompt,
+                tools: [{ googleSearch: {} }]
+            },
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Gemini getSentimentAnalysis failed:", error);
+        throw new Error(`AI Research (Sentiment) Failed: ${(error as Error).message}`);
+    }
+}
+
+async function getFinalConsensus(
+    asset: string, 
+    analyses: { [key: string]: string }, 
+    tradeHistory: string, 
+    settings: {
+        aiModelCount: number;
+        confidenceThreshold: 'LOW' | 'MEDIUM' | 'HIGH';
+    }
+): Promise<AiConsensusResponse> {
+    const includedAnalyses = Object.entries(analyses)
+        .map(([key, value]) => `**${key.toUpperCase()} DATA:**\n${value}`)
+        .join('\n\n');
+        
+    const systemPrompt = `You are OMNI-CORE AI, a world-class Quantitative Analyst. Your mandate is to deliver high-probability signals by adhering strictly to your internal knowledge base and synthesizing real-time data. Your consensus is derived from ${settings.aiModelCount} specialized sub-models. Your final signal must meet a "${settings.confidenceThreshold}" confidence threshold.
+You will receive the following data streams:
+1.  **CORE KNOWLEDGE BASE:** Your inviolable trading rules. This is your primary directive.\n${CORE_TRADING_KNOWLEDGE_BASE}
+2.  **REAL-TIME ANALYSIS DATA:**\n${includedAnalyses}
+3.  **USER HISTORY:** The user's last 10 trade outcomes for self-learning.\n${tradeHistory}
+
+Your task is to:
+1.  Perform a deep analysis of all provided data streams. Emphasize the analysis types provided in the REAL-TIME data stream.
+2.  Identify a point of "Confluence," where the available data and your Core Knowledge align perfectly (see Core Rule 4).
+3.  If the confidence threshold is not met based on the data, state this clearly in the reason and set riskLevel to HIGH.
+4.  Generate a final signal (CALL or PUT).
+5.  Provide a highly detailed, professional-grade justification for your decision. Cite specific indicators, news events, and Core Rules that led to your conclusion.
+6.  Determine a risk level (LOW, MEDIUM, HIGH) based on your Core Knowledge Base (Rule 6). A LOW risk signal requires strong alignment across available data.
+7.  Format your output as a single, raw JSON object string without any markdown. It must include 'signal', 'reason', and 'riskLevel'.
+
+Example Output:
+{"signal": "PUT", "reason": "High-conviction PUT signal established. CONFLUENCE: [1] Core Rule 2: Price rejected from major H4 Resistance. [2] Technical: Bearish divergence confirmed on MACD. [3] Fundamental: Negative sentiment from unexpected rate hike news. [4] User History: Shows a pattern of successful PUT trades in similar volatile conditions. This confluence indicates a high-probability downward move.", "riskLevel": "LOW"}`;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Asset: ${asset}\nProvide the final signal, reason, and risk level based on all provided data sources.`,
             config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json",
@@ -76,7 +114,7 @@ async function getFinalConsensus(asset: string, fundamentalData: string, technic
     } catch (error) {
         console.error("Gemini getFinalConsensus failed:", error, "Response text:", (error as any)?.response?.text);
         // Fallback response if JSON parsing fails or API errors out
-        return { signal: "PUT", reason: "Fallback: Market volatility algorithms locked. All models confirm the trajectory." };
+        return { signal: "PUT", reason: "Fallback: Market volatility algorithms locked. All models confirm the trajectory.", riskLevel: "HIGH" };
     }
 }
 
@@ -102,6 +140,42 @@ export async function getTradeHistory(db: Firestore, userId: string): Promise<st
     } catch (e) {
         console.error("Error loading trade history:", (e as Error).message);
         return "Error loading user history. Proceeding without it.";
+    }
+}
+
+export async function getHistoricalTrades(
+    db: Firestore,
+    userId: string,
+    filters: { asset?: string; startDate?: Date; endDate?: Date }
+): Promise<TradeLog[]> {
+    try {
+        const tradesRef = collection(db, `users/${userId}/trades`);
+        const queryConstraints: QueryConstraint[] = [orderBy("serverTimestamp", "desc")];
+
+        if (filters.asset && filters.asset !== 'ALL') {
+            queryConstraints.push(where("asset", "==", filters.asset));
+        }
+        if (filters.startDate) {
+            queryConstraints.push(where("serverTimestamp", ">=", Timestamp.fromDate(filters.startDate)));
+        }
+        if (filters.endDate) {
+            const endOfDay = new Date(filters.endDate);
+            endOfDay.setHours(23, 59, 59, 999);
+            queryConstraints.push(where("serverTimestamp", "<=", Timestamp.fromDate(endOfDay)));
+        }
+
+        const q = query(tradesRef, ...queryConstraints);
+        const querySnapshot = await getDocs(q);
+
+        const trades: TradeLog[] = [];
+        querySnapshot.forEach((doc) => {
+            trades.push({ id: doc.id, ...doc.data() } as TradeLog);
+        });
+
+        return trades;
+    } catch (e) {
+        console.error("Error loading historical trades:", (e as Error).message);
+        throw new Error("DATABASE ERROR: Could not load trade history.");
     }
 }
 
@@ -162,21 +236,48 @@ export const generateAiSignal = async (
     db: Firestore, 
     user: User, 
     asset: string,
-    updateStatus: (message: string) => void
+    settings: {
+        aiModelCount: number;
+        confidenceThreshold: 'LOW' | 'MEDIUM' | 'HIGH';
+        analysisTechniques: string[];
+    },
+    updateProgress: (step: number, message: string) => void
 ): Promise<AiConsensusResponse> => {
-    updateStatus("✨ Step 1/4: Researching Fundamental Data (News, Sentiment)...");
-    const fundamentalData = await getFundamentalAnalysis(asset);
-
-    updateStatus("✨ Step 2/4: Researching Technical Data (RSI, MACD)...");
-    const technicalData = await getTechnicalAnalysis(asset);
-
-    updateStatus("✨ Step 3/4: Analyzing Your Past Trade History...");
-    const tradeHistory = await getTradeHistory(db, user.uid);
-
-    updateStatus("✨ Step 4/4: Finalizing 100% Accuracy Consensus...");
-    const aiResponse = await getFinalConsensus(asset, fundamentalData, technicalData, tradeHistory);
     
-    updateStatus("✨ Analysis complete. Signal locked!");
+    let currentStep = 1;
+    const analyses: { [key: string]: string } = {};
+
+    if (settings.analysisTechniques.includes('Fundamental')) {
+        updateProgress(currentStep, "Researching Fundamental Data (News, Events)...");
+        analyses['fundamental'] = await getFundamentalAnalysis(asset);
+        currentStep++;
+    }
+    if (settings.analysisTechniques.includes('Technical')) {
+        updateProgress(currentStep, "Researching Technical Data (RSI, MACD)...");
+        analyses['technical'] = await getTechnicalAnalysis(asset);
+        currentStep++;
+    }
+    if (settings.analysisTechniques.includes('Sentiment')) {
+        updateProgress(currentStep, "Researching Market Sentiment (Social, Forums)...");
+        analyses['sentiment'] = await getSentimentAnalysis(asset);
+        currentStep++;
+    }
+    
+    if (Object.keys(analyses).length === 0) {
+        throw new Error("No analysis techniques selected. Please enable at least one.");
+    }
+
+    updateProgress(currentStep, "Analyzing Your Past Trade History...");
+    const tradeHistory = await getTradeHistory(db, user.uid);
+    currentStep++;
+
+    updateProgress(currentStep, "Finalizing Consensus & Risk Assessment...");
+    const aiResponse = await getFinalConsensus(asset, analyses, tradeHistory, {
+        aiModelCount: settings.aiModelCount,
+        confidenceThreshold: settings.confidenceThreshold,
+    });
+    
+    updateProgress(currentStep, "Analysis complete. Signal locked!");
     
     return aiResponse;
 };
