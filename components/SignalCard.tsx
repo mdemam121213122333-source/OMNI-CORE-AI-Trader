@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { SignalData } from '../types';
 import { TOTAL_AI_MODELS } from '../constants';
@@ -40,28 +41,46 @@ const SignalCard: React.FC<SignalCardProps> = ({ signalData, lastTenResults, isC
     const formatTime = (time: number) => `${String(Math.floor(time / 60)).padStart(2, '0')}:${String(time % 60).padStart(2, '0')}`;
 
     const renderSignalStatus = () => {
+        if (isLoading) {
+            return <div className="text-center text-xl text-[#00bcd4] font-semibold animate-pulse">ANALYZING MARKET DATA...</div>;
+        }
+    
         if (signalData) {
             const isCall = signalData.direction === 'CALL';
             const signalClass = isCall ? 'text-[#00e676] bg-[#00e676]/10 border-[#00e676]' : 'text-[#ff3d00] bg-[#ff3d00]/10 border-[#ff3d00]';
             const shadowClass = isCall ? 'shadow-[0_0_20px_theme(colors.green.500)]' : 'shadow-[0_0_20px_theme(colors.red.600)]';
+            
+            // When there's a signal, we show it. If we are also in cooldown, we show the timer below it.
             return (
-                <div className={`text-4xl font-black tracking-widest p-4 rounded-lg text-center border-2 ${signalClass} ${shadowClass} animate-pulse`}>
-                    {signalData.direction}
+                <>
+                    <div className={`text-4xl font-black tracking-widest p-4 rounded-lg text-center border-2 ${signalClass} ${shadowClass} ${!isCooldown ? 'animate-pulse' : ''}`}>
+                        {signalData.direction}
+                    </div>
+                    {isCooldown && (
+                        <div className="text-center text-yellow-400 mt-4 animate-pulse">
+                            <div className="text-xs font-bold tracking-wider">NEXT SIGNAL AVAILABLE IN</div>
+                            <div className="text-2xl font-mono mt-1">{formatTime(cooldownTime)}</div>
+                        </div>
+                    )}
+                </>
+            );
+        }
+        
+        // This state (cooldown without signal) is not reachable with current logic but kept for robustness.
+        if (isCooldown) {
+            return (
+                <div className="text-center text-yellow-400 animate-pulse">
+                    <div className="text-xl font-bold">COOLDOWN ACTIVE</div>
+                    <div className="text-4xl font-mono mt-1">{formatTime(cooldownTime)}</div>
                 </div>
             );
         }
-        if (isLoading) return <div className="text-center text-xl text-[#00bcd4] font-semibold animate-pulse">ANALYZING MARKET DATA...</div>;
-        if (isCooldown) return (
-            <div className="text-center text-yellow-400 animate-pulse">
-                <div className="text-xl font-bold">COOLDOWN ACTIVE</div>
-                <div className="text-4xl font-mono mt-1">{formatTime(cooldownTime)}</div>
-            </div>
-        );
+    
         return <div className="text-center text-gray-400 font-semibold">AWAITING SIGNAL</div>;
     };
 
     return (
-        <div className="bg-[#1a2c4e]/60 rounded-xl p-5 relative shadow-xl border border-white/10 transition-all duration-500 overflow-hidden min-h-[250px] flex flex-col justify-between">
+        <div className="bg-[#1a2c4e]/60 rounded-xl p-5 relative shadow-xl border border-white/10 transition-all duration-500 overflow-hidden min-h-[340px] flex flex-col justify-between">
             <div>
                 <div className="grid grid-cols-2 gap-x-4">
                     <DetailRow label="Broker" value={signalData?.broker || '...'} />

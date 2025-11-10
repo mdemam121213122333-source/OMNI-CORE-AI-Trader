@@ -60,20 +60,20 @@ export const marketAssets: { [key: string]: string[] } = {
 
 export const brokerMarketMap: { [key: string]: string } = { 'POCKET OPTION': 'POCKET OPTION (OMNI-CORE ACTIVE - $100K FIX)', 'BINOMO': 'BINOMO (OMNI-CORE ACTIVE - $100K FIX)', 'OLYMP TRADE': 'OLYMP TRADE (OMNI-CORE ACTIVE - $100K FIX)', 'IQ OPTION': 'IQ OPTION (OMNI-CORE ACTIVE - $100K FIX)', 'EXPERT OPTION': 'EXPERT OPTION (OMNI-CORE ACTIVE - $100K FIX)', 'QUOTEX': 'QUOTEX (OMNI-CORE ACTIVE - $100K FIX)', 'Ultimate Broker (LIVE OMNI-CORE ACTIVE)': 'Ultimate Singularity Core (OMNI-CORE ACTIVE - $100K FIX)', 'DERIV (Binary/Synthetics)': 'DERIV (OMNI-CORE ACTIVE - $100K FIX)', 'RoboForex (FX/CFD)': 'RoboForex (OMNI-CORE ACTIVE - $100K FIX)', 'Exness (FX/CFD)': 'Exness (OMNI-CORE ACTIVE - $100K FIX)', 'FXTM (FX/CFD)': 'FXTM (OMNI-CORE ACTIVE - $100K FIX)', 'OctaFX (FX/CFD)': 'OctaFX (OMNI-CORE ACTIVE - $100K FIX)', 'FUTURES (CME/CBOT)': 'FUTURES (OMNI-CORE ACTIVE - $100K FIX)', 'FTX (Crypto Exchange)': 'FTX (OMNI-CORE ACTIVE - $100K FIX)', 'BYBIT (Derivatives)': 'BYBIT (OMNI-CORE ACTIVE - $100K FIX)', 'BINANCE (Global Exchange)': 'BINANCE (OMNI-CORE ACTIVE - $100K FIX)', 'TD Ameritrade (US Stocks)': 'TD Ameritrade (OMNI-CORE ACTIVE - $100K FIX)' };
 
-const binaryPlusDurations = ['5 Second', '10 Second', '15 Second', '30 Second', '1 Minute', '2 Minute', '3 Minute', '5 Minute', '10 Minute', '15 Minute', '30 Minute', '1 Hour', '2 Hour', '3 Hour', '4 Hour', 'Daily'];
+const shortBinaryDurations = ['5 Second', '10 Second', '15 Second', '30 Second', '1 Minute'];
 const forexDurations = ['1 Minute', '5 Minute', '15 Minute', '30 Minute', '1 Hour', '4 Hour', 'Daily'];
 const cryptoStockDurations = ['5 Minute', '15 Minute', '30 Minute', '1 Hour', '4 Hour', 'Daily'];
-export const defaultDurations = ['1 Minute', '2 Minute', '3-Minute', '5 Minute', '10 Minute', '15 Minute', '30 Minute'];
+export const defaultDurations = ['1 Minute', '30 Second', '5 Second'];
 
 export const brokerDurationsMap: { [key: string]: string[] } = { 
-    'Ultimate Broker (LIVE OMNI-CORE ACTIVE)': binaryPlusDurations, 
-    'POCKET OPTION': binaryPlusDurations, 
-    'BINOMO': binaryPlusDurations, 
-    'OLYMP TRADE': binaryPlusDurations, 
-    'IQ OPTION': binaryPlusDurations, 
-    'EXPERT OPTION': binaryPlusDurations, 
-    'QUOTEX': binaryPlusDurations, 
-    'DERIV (Binary/Synthetics)': ['5 Second', '10 Second', '15 Second', '30 Second', '1 Minute', '2 Minute', '3 Minute', '5 Minute', '10 Minute', '15 Minute'], 
+    'Ultimate Broker (LIVE OMNI-CORE ACTIVE)': shortBinaryDurations, 
+    'POCKET OPTION': shortBinaryDurations, 
+    'BINOMO': shortBinaryDurations, 
+    'OLYMP TRADE': shortBinaryDurations, 
+    'IQ OPTION': shortBinaryDurations, 
+    'EXPERT OPTION': shortBinaryDurations, 
+    'QUOTEX': shortBinaryDurations, 
+    'DERIV (Binary/Synthetics)': shortBinaryDurations, 
     'RoboForex (FX/CFD)': forexDurations, 
     'Exness (FX/CFD)': forexDurations, 
     'FXTM (FX/CFD)': forexDurations, 

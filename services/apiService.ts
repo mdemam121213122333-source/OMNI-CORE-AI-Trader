@@ -116,8 +116,7 @@ Example Output:
         return JSON.parse(cleanedText) as AiConsensusResponse;
     } catch (error) {
         console.error("Gemini getFinalConsensus failed:", error, "Response text:", (error as any)?.response?.text);
-        // Fallback response if JSON parsing fails or API errors out
-        return { signal: "PUT", reason: "Fallback: Market volatility algorithms locked. All models confirm the trajectory.", riskLevel: "HIGH" };
+        throw new Error(`AI Consensus (Step 5) Failed. The model may have returned an invalid response. Details: ${(error as Error).message}`);
     }
 }
 
@@ -329,7 +328,7 @@ export const generateAiSignal = async (
         aiPersona: settings.aiPersona,
     });
     
-    updateProgress(currentStep, "Analysis complete. Signal locked!");
+    updateProgress(currentStep + 1, "Analysis complete. Signal locked!");
     
     return aiResponse;
 };

@@ -161,9 +161,7 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, db }) => {
             if (isCooldown && cooldownTime <= 0) {
                 setIsCooldown(false);
                 setCooldownTime(60);
-                setIsMarketSyncing(true);
-                setMarketSyncTime(getRandomSyncTime());
-                setLogMessages(prevLogs => [...prevLogs, 'System cooldown complete. Initiating new market sync cycle.']);
+                setLogMessages(prevLogs => [...prevLogs, 'System cooldown complete. Ready for new analysis.']);
             }
             return;
         };
@@ -180,19 +178,19 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, db }) => {
 
         const updateProgress = (step: number, message: string) => {
             setAnalysisStep(step);
-            setLogMessages(prev => [...prev, `[STEP ${step}] ${message}`]);
+            setLogMessages(prev => [...prev, `[STEP ${step > 5 ? 5 : step}] ${message}`]);
         };
 
         try {
             const settings = { aiModelCount, confidenceThreshold, analysisTechniques, aiPersona };
             const aiResponse: AiConsensusResponse = await generateAiSignal(db, user, selections.asset, settings, updateProgress);
-            const entryTime = new Date(new Date().getTime() + 2 * 60000 + 6 * 3600 * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+            const entryTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
             const newSignal: SignalData = {
                 broker: brokerMarketMap[selections.broker] || selections.broker,
                 asset: selections.asset,
                 duration: selections.duration,
                 direction: aiResponse.signal,
-                time: `${entryTime} (UTC+6)`,
+                time: `${entryTime} (UTC)`,
                 riskLevel: aiResponse.riskLevel,
                 reason: aiResponse.reason,
             };
@@ -223,6 +221,7 @@ const TraderDashboard: React.FC<TraderDashboardProps> = ({ user, db }) => {
         setIsMarketSyncing(false);
         setMarketSyncTime(getRandomSyncTime());
         setAnalysisStep(0);
+        setIsLoading(false);
         setLogMessages([`System manually reset by user. Ready for new analysis.`]);
     };
 
