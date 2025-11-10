@@ -1,3 +1,4 @@
+import { AIPersona } from './types';
 
 // This is your specific Firebase configuration.
 export const firebaseConfig = {
@@ -24,6 +25,29 @@ export const CORE_TRADING_KNOWLEDGE_BASE = `
 - **Rule 6: Risk Assessment (Critical):** If Fundamental data (News) conflicts with Technical data (Indicators), the signal is "MEDIUM" or "HIGH" risk. A "LOW" risk (100% accuracy) signal *requires* both fundamentals and technicals to align.
 - **Rule 7: Duration Matters:** A signal for "5 Second" is purely technical scalping (based on M1/M5 price action). A signal for "1 Hour" MUST align with the H1/H4 trend.
 `;
+
+export const AI_PERSONAS: { [key: string]: AIPersona } = {
+  'standard': {
+    name: 'OMNI-CORE Standard',
+    description: 'Balanced approach using all available data streams equally.',
+    instruction: 'You will maintain a balanced, objective analytical approach.'
+  },
+  'conservative': {
+    name: 'Conservative Analyst',
+    description: 'Prioritizes capital preservation. Only acts on very high-probability, low-risk setups.',
+    instruction: 'You must adopt a highly risk-averse, conservative persona. Your primary goal is capital preservation. You will heavily penalize any conflicting data and only generate a signal if confidence is exceptionally high and the risk is definitively LOW. If there is any doubt, you must state it.'
+  },
+  'aggressive': {
+    name: 'Aggressive Tactician',
+    description: 'Seeks high-reward opportunities and is willing to accept higher risk for strong signals.',
+    instruction: 'You are an aggressive tactician. You are looking for high-impact opportunities and are willing to accept MEDIUM risk if the confluence of data is strong, even if not perfect. You may give more weight to short-term momentum indicators.'
+  },
+  'news_trader': {
+    name: 'News-Focused Trader',
+    description: 'Places a heavy emphasis on fundamental news and market sentiment over technicals.',
+    instruction: 'Your analysis must be heavily weighted towards Fundamental (News) and Sentiment data. Technical indicators are secondary and should only be used to confirm the entry point for a fundamentally-driven trade idea. Your reasoning must start with the key news event driving your decision.'
+  }
+};
 
 export const brokers = [ 'Ultimate Broker (LIVE OMNI-CORE ACTIVE)', 'POCKET OPTION', 'BINOMO', 'OLYMP TRADE', 'IQ OPTION', 'EXPERT OPTION', 'QUOTEX', 'DERIV (Binary/Synthetics)', 'RoboForex (FX/CFD)', 'Exness (FX/CFD)', 'FXTM (FX/CFD)', 'OctaFX (FX/CFD)', 'FUTURES (CME/CBOT)', 'FTX (Crypto Exchange)', 'BYBIT (Derivatives)', 'BINANCE (Global Exchange)', 'TD Ameritrade (US Stocks)' ];
 

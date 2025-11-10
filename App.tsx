@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 // FIX: Separating value and type imports for Firebase to resolve potential module resolution issues.
 import { initializeApp } from 'firebase/app';
@@ -6,7 +5,7 @@ import type { FirebaseApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, User, Auth } from 'firebase/auth';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import Login from './components/Login';
-import TraderDashboard from './components/TraderDashboard';
+import Layout from './components/Layout';
 import { firebaseConfig } from './constants';
 
 // --- Firebase Initialization ---
@@ -29,6 +28,10 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Apply saved theme from local storage on initial load
+    const savedTheme = localStorage.getItem('omni-core-theme') || 'omni-core';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -39,15 +42,15 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#103058] to-[#061021] text-white">
+      <div className="flex items-center justify-center min-h-screen bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
         Initializing OMNI-CORE AI...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#091a31] text-white antialiased">
-      {user ? <TraderDashboard user={user} auth={auth} db={db} /> : <Login auth={auth} />}
+    <div className="min-h-screen antialiased">
+      {user ? <Layout user={user} auth={auth} db={db} /> : <Login auth={auth} />}
     </div>
   );
 };

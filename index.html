@@ -1,6 +1,5 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="omni-core">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,29 +12,66 @@
     <style>
       body {
         font-family: 'Poppins', sans-serif;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        transition: background-color 0.3s ease, color 0.3s ease;
       }
-      /* Custom scrollbar for a more high-tech feel */
+      
+      [data-theme='omni-core'] {
+        --bg-primary: #091a31;
+        --bg-secondary: #1a2c4e;
+        --bg-tertiary: #103058;
+        --accent-primary: #ff5733;
+        --accent-secondary: #00bcd4;
+        --text-primary: #ffffff;
+        --text-secondary: #a0aec0;
+        --border-color: rgba(255, 255, 255, 0.1);
+        --success-color: #00e676;
+        --danger-color: #ff3d00;
+      }
+
+      [data-theme='matrix'] {
+        --bg-primary: #020b03;
+        --bg-secondary: #0a1f0c;
+        --bg-tertiary: #051406;
+        --accent-primary: #00ff41;
+        --accent-secondary: #39ff14;
+        --text-primary: #00ff41;
+        --text-secondary: #00b32d;
+        --border-color: rgba(0, 255, 65, 0.2);
+        --success-color: #39ff14;
+        --danger-color: #ff3d00;
+      }
+
+      /* Custom scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #091a31; 
+        background: var(--bg-primary); 
       }
       ::-webkit-scrollbar-thumb {
-        background: #ff5733;
+        background: var(--accent-primary);
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #e64a19; 
+        filter: brightness(1.2);
       }
-      /* Subtle background grid */
-      body.bg-\[\#091a31\] {
+      
+      /* Subtle background grid for omni-core theme */
+      [data-theme='omni-core'] body {
         background-image: 
           linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), 
           linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
         background-size: 25px 25px;
       }
+      
+      /* Matrix background effect */
+      [data-theme='matrix'] body {
+        font-family: 'Roboto Mono', monospace;
+      }
+
       /* Simple fade-in animation */
       @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
@@ -57,7 +93,7 @@
 }
 </script>
 </head>
-  <body class="bg-[#091a31]">
+  <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

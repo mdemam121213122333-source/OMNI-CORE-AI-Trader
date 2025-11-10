@@ -1,9 +1,8 @@
-
-import { GoogleGenAI } from "@google/genai";
-import { Firestore, doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, Timestamp, QueryConstraint } from 'firebase/firestore';
+import { GoogleGenAI, Chat } from "@google/genai";
+import { Firestore, doc, getDoc, setDoc, collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs, where, Timestamp, QueryConstraint, updateDoc } from 'firebase/firestore';
 import { User } from 'firebase/auth';
-import { CORE_TRADING_KNOWLEDGE_BASE, googleScriptURL } from '../constants';
-import { UserSettings, AiConsensusResponse, TradeLog } from '../types';
+import { CORE_TRADING_KNOWLEDGE_BASE, googleScriptURL, AI_PERSONAS } from '../constants';
+import { UserSettings, AiConsensusResponse, TradeLog, TradeOutcome } from '../types';
 
 // Initialize the Gemini AI Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
@@ -74,20 +73,24 @@ async function getFinalConsensus(
     settings: {
         aiModelCount: number;
         confidenceThreshold: 'LOW' | 'MEDIUM' | 'HIGH';
+        aiPersona: string;
     }
 ): Promise<AiConsensusResponse> {
     const includedAnalyses = Object.entries(analyses)
         .map(([key, value]) => `**${key.toUpperCase()} DATA:**\n${value}`)
         .join('\n\n');
+    
+    const personaInstruction = AI_PERSONAS[settings.aiPersona]?.instruction || AI_PERSONAS['standard'].instruction;
         
     const systemPrompt = `You are OMNI-CORE AI, a world-class Quantitative Analyst. Your mandate is to deliver high-probability signals by adhering strictly to your internal knowledge base and synthesizing real-time data. Your consensus is derived from ${settings.aiModelCount} specialized sub-models. Your final signal must meet a "${settings.confidenceThreshold}" confidence threshold.
+**PERSONA DIRECTIVE:** ${personaInstruction}
 You will receive the following data streams:
 1.  **CORE KNOWLEDGE BASE:** Your inviolable trading rules. This is your primary directive.\n${CORE_TRADING_KNOWLEDGE_BASE}
 2.  **REAL-TIME ANALYSIS DATA:**\n${includedAnalyses}
 3.  **USER HISTORY:** The user's last 10 trade outcomes for self-learning.\n${tradeHistory}
 
 Your task is to:
-1.  Perform a deep analysis of all provided data streams. Emphasize the analysis types provided in the REAL-TIME data stream.
+1.  Perform a deep analysis of all provided data streams according to your Persona Directive.
 2.  Identify a point of "Confluence," where the available data and your Core Knowledge align perfectly (see Core Rule 4).
 3.  If the confidence threshold is not met based on the data, state this clearly in the reason and set riskLevel to HIGH.
 4.  Generate a final signal (CALL or PUT).
@@ -118,6 +121,38 @@ Example Output:
     }
 }
 
+export async function getPostTradeAnalysis(trade: TradeLog, outcome: TradeOutcome): Promise<string> {
+    const systemPrompt = `You are a trading analyst. The user has just completed a trade with the following details and outcome.
+- Asset: ${trade.asset}
+- Signal: ${trade.direction}
+- Duration: ${trade.duration}
+- My AI's Original Reason: ${trade.reason}
+- Risk Level: ${trade.riskLevel}
+- Outcome: ${outcome}
+
+Your task is to:
+1. Use Google Search to find relevant market data (price action, news, technical indicators) for ${trade.asset} around the time of the trade: ${trade.serverTimestamp.toDate().toUTCString()}.
+2. Based on the data, provide a concise, insightful analysis explaining the *most likely reason* for the trade's outcome.
+3. If it was a WIN, explain what factors confirmed the original signal.
+4. If it was a LOSS, explain what factors went against the original signal (e.g., unexpected news, broken support, sudden momentum shift).
+5. Keep the analysis to 3-4 key bullet points. Be direct and educational. Do not add greetings or closings.`;
+    
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Analyze the trade outcome for ${trade.asset}.`,
+            config: {
+                systemInstruction: systemPrompt,
+                tools: [{ googleSearch: {} }],
+            },
+        });
+        return response.text;
+    } catch (error) {
+        console.error("Gemini getPostTradeAnalysis failed:", error);
+        return "Failed to perform post-trade analysis due to an AI service error.";
+    }
+}
+
 
 // --- Firestore & Data Logging ---
 
@@ -132,7 +167,9 @@ export async function getTradeHistory(db: Firestore, userId: string): Promise<st
         let history: string[] = [];
         querySnapshot.forEach((doc) => {
             const data = doc.data();
-            history.push(`- Asset: ${data.asset}, Signal: ${data.direction}, Reason: ${data.reason}`);
+            // Add outcome to the history string for better AI learning
+            const outcome = data.outcome || 'PENDING';
+            history.push(`- Asset: ${data.asset}, Signal: ${data.direction}, Outcome: ${outcome}`);
         });
 
         if (history.length === 0) return "No previous trades found for this user.";
@@ -169,13 +206,26 @@ export async function getHistoricalTrades(
 
         const trades: TradeLog[] = [];
         querySnapshot.forEach((doc) => {
-            trades.push({ id: doc.id, ...doc.data() } as TradeLog);
+            trades.push({ id: doc.id, ...doc.data(), outcome: doc.data().outcome || 'PENDING' } as TradeLog);
         });
 
         return trades;
     } catch (e) {
         console.error("Error loading historical trades:", (e as Error).message);
         throw new Error("DATABASE ERROR: Could not load trade history.");
+    }
+}
+
+export async function updateTradeOutcome(db: Firestore, userId: string, tradeId: string, outcome: TradeOutcome, analysis: string): Promise<void> {
+    try {
+        const tradeRef = doc(db, `users/${userId}/trades`, tradeId);
+        await updateDoc(tradeRef, {
+            outcome: outcome,
+            postTradeAnalysis: analysis
+        });
+    } catch (error) {
+        console.error("Error updating trade outcome:", error);
+        throw new Error("Failed to update trade in the database.");
     }
 }
 
@@ -207,6 +257,7 @@ async function saveTradeToFirestore(db: Firestore, userId: string, tradeData: ob
         const collectionRef = collection(db, `users/${userId}/trades`);
         await addDoc(collectionRef, {
             ...tradeData,
+            outcome: 'PENDING',
             serverTimestamp: serverTimestamp()
         });
     } catch (error) {
@@ -229,8 +280,7 @@ async function sendDataToGoogleScript(data: object) {
     }
 }
 
-
-// --- Main Orchestrator ---
+// --- Main Signal Orchestrator ---
 
 export const generateAiSignal = async (
     db: Firestore, 
@@ -240,6 +290,7 @@ export const generateAiSignal = async (
         aiModelCount: number;
         confidenceThreshold: 'LOW' | 'MEDIUM' | 'HIGH';
         analysisTechniques: string[];
+        aiPersona: string;
     },
     updateProgress: (step: number, message: string) => void
 ): Promise<AiConsensusResponse> => {
@@ -275,6 +326,7 @@ export const generateAiSignal = async (
     const aiResponse = await getFinalConsensus(asset, analyses, tradeHistory, {
         aiModelCount: settings.aiModelCount,
         confidenceThreshold: settings.confidenceThreshold,
+        aiPersona: settings.aiPersona,
     });
     
     updateProgress(currentStep, "Analysis complete. Signal locked!");
@@ -290,4 +342,25 @@ export const logTrade = async (db: Firestore, user: User, tradeData: object) => 
     };
     await saveTradeToFirestore(db, user.uid, fullTradeData);
     await sendDataToGoogleScript(fullTradeData);
+};
+
+// --- Conversational AI ---
+
+export const getConversationalResponse = async (chat: Chat, message: string): Promise<string> => {
+    try {
+        const response = await chat.sendMessage({ message });
+        return response.text;
+    } catch (error) {
+        console.error("Conversational AI error:", error);
+        return "I'm sorry, I encountered an error and cannot respond at the moment.";
+    }
+};
+
+export const initializeChat = (): Chat => {
+    return ai.chats.create({
+        model: 'gemini-2.5-flash',
+        config: {
+            systemInstruction: "You are OMNI-CORE's conversational AI assistant. You are an expert financial analyst. Your goal is to answer the user's questions about trading, markets, and financial concepts. You should be helpful, insightful, and concise. Use Google Search to find real-time information if needed. Do not generate trading signals directly in this chat.",
+        },
+    });
 };

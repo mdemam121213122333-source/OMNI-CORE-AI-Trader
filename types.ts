@@ -1,4 +1,3 @@
-
 import { Timestamp } from 'firebase/firestore';
 
 export interface SignalData {
@@ -19,6 +18,7 @@ export interface UserSettings {
   aiModelCount?: number;
   confidenceThreshold?: 'LOW' | 'MEDIUM' | 'HIGH';
   analysisTechniques?: string[];
+  aiPersona?: string;
 }
 
 export interface AiConsensusResponse {
@@ -26,6 +26,8 @@ export interface AiConsensusResponse {
     reason: string;
     riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
 }
+
+export type TradeOutcome = 'WIN' | 'LOSS' | 'PUSH' | 'PENDING';
 
 export interface TradeLog {
   id: string; // Document ID
@@ -37,4 +39,12 @@ export interface TradeLog {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   reason: string;
   serverTimestamp: Timestamp;
+  outcome: TradeOutcome;
+  postTradeAnalysis?: string;
+}
+
+export interface AIPersona {
+  name: string;
+  description: string;
+  instruction: string;
 }
